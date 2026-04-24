@@ -146,72 +146,9 @@
   .fan-wrap:hover .fan-b { transform: rotate(1deg)  translate(4px,-6px); }
   .fan-wrap:hover .fan-c { transform: rotate(10deg) translate(20px,-4px); }
 
-  /* API key overlay */
-  #key-overlay {
-    position: fixed; inset: 0; z-index: 100;
-    background: rgba(250,250,248,0.88);
-    backdrop-filter: blur(12px);
-    display: flex; align-items: center; justify-content: center;
-    padding: 1.5rem;
-  }
-  #key-overlay.hidden { display: none; }
-  #key-card {
-    background: #fff;
-    border-radius: 28px;
-    padding: 2.5rem;
-    max-width: 460px;
-    width: 100%;
-    box-shadow: 0 2px 4px rgba(31,29,43,0.04), 0 20px 60px rgba(31,29,43,0.1);
-  }
-  #key-input {
-    width: 100%;
-    border: 1.5px solid rgba(31,29,43,0.1);
-    border-radius: 14px;
-    padding: 0.75rem 1rem;
-    font-family: 'DM Sans', sans-serif;
-    font-size: 15px;
-    color: #1F1D2B;
-    background: #FAFAF8;
-    outline: none;
-    transition: border-color 200ms;
-    margin-top: 1.25rem;
-  }
-  #key-input:focus { border-color: #7C6FF7; background: #fff; }
-  #key-submit {
-    margin-top: 1rem;
-    width: 100%;
-    padding: 0.875rem 1.5rem;
-    background: #7C6FF7;
-    color: #fff;
-    font-family: 'DM Sans', sans-serif;
-    font-size: 15.5px;
-    font-weight: 500;
-    border: none;
-    border-radius: 14px;
-    cursor: pointer;
-    transition: opacity 200ms;
-  }
-  #key-submit:hover { opacity: 0.9; }
-  #key-error { color: #c0392b; font-size: 13px; margin-top: 0.5rem; display: none; }
 </style>
 </head>
 <body class="min-h-screen">
-
-<!-- API Key overlay — dismisses once key is set -->
-<div id="key-overlay">
-  <div id="key-card">
-    <div class="flex items-center gap-2 mb-5">
-      <span class="inline-block w-8 h-8 rounded-full" style="background: conic-gradient(from 210deg, #E8E6FF, #FFE1D4, #E8E6FF);"></span>
-      <span class="font-semibold text-ink tracking-tight text-[17px]">not your thoughts</span>
-    </div>
-    <h2 class="text-[22px] font-semibold text-ink leading-snug tracking-tight">To use the chat, add your Anthropic API key</h2>
-    <p class="mt-2 text-[14.5px] text-ink2 leading-relaxed">Your key stays in this browser session only — it's never sent anywhere except directly to Anthropic's API.</p>
-    <input id="key-input" type="password" placeholder="sk-ant-…" autocomplete="off" spellcheck="false" />
-    <div id="key-error">That doesn't look like a valid key. It should start with <code>sk-ant-</code>.</div>
-    <button id="key-submit">Start the conversation</button>
-    <p class="mt-4 text-center text-[12px] text-mute">Don't have a key? <a href="https://console.anthropic.com" target="_blank" rel="noopener" class="underline underline-offset-2 hover:text-ink transition">Get one at console.anthropic.com</a></p>
-  </div>
-</div>
 
 <!-- Nav -->
 <header class="relative z-20">
@@ -661,40 +598,7 @@
   });
 </script>
 
-<!-- API key management -->
-<script>
-  const KEY_SESSION = 'anthropic_key';
-
-  function getKey() {
-    return sessionStorage.getItem(KEY_SESSION) || '';
-  }
-
-  const overlay   = document.getElementById('key-overlay');
-  const keyInput  = document.getElementById('key-input');
-  const keySubmit = document.getElementById('key-submit');
-  const keyError  = document.getElementById('key-error');
-
-  if (getKey()) {
-    overlay.classList.add('hidden');
-  }
-
-  keySubmit.addEventListener('click', () => {
-    const val = keyInput.value.trim();
-    if (!val.startsWith('sk-ant-') && !val.startsWith('sk-')) {
-      keyError.style.display = 'block';
-      return;
-    }
-    keyError.style.display = 'none';
-    sessionStorage.setItem(KEY_SESSION, val);
-    overlay.classList.add('hidden');
-  });
-
-  keyInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') keySubmit.click();
-  });
-</script>
-
-<!-- Chat — powered by Claude (claude-sonnet-4-6 via Anthropic Messages API) -->
+<!-- Chat — powered by Claude (claude-sonnet-4-6 via Netlify Function) -->
 <script>
   const messagesEl  = document.getElementById('messages');
   const form        = document.getElementById('chat-form');
@@ -796,12 +700,6 @@ ${reframeNow
     const text = input.value.trim();
     if (!text) return;
 
-    const apiKey = getKey();
-    if (!apiKey) {
-      overlay.classList.remove('hidden');
-      return;
-    }
-
     addMessage('user', text);
     history.push({ role: 'user', content: text });
     input.value = '';
@@ -812,17 +710,10 @@ ${reframeNow
     addTyping();
 
     try {
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
+      const res = await fetch('/.netlify/functions/chat', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: 'claude-sonnet-4-6',
-          max_tokens: 512,
           system: buildSystem(),
           messages: history.map(m => ({ role: m.role, content: m.content })),
         }),
@@ -830,22 +721,19 @@ ${reframeNow
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        throw new Error(err?.error?.message || `HTTP ${res.status}`);
+        throw new Error(err?.error || `HTTP ${res.status}`);
       }
 
       const data = await res.json();
       removeTyping();
-      const reply = (data.content?.[0]?.text || '').trim()
+      const reply = (data.text || '').trim()
         || "I'm here. Tell me a little more about what it's saying.";
       addMessage('bot', reply);
       history.push({ role: 'assistant', content: reply });
 
     } catch (err) {
       removeTyping();
-      const msg = err.message.includes('401') || err.message.includes('403')
-        ? "That API key didn't work. Want to try a different one?"
-        : "I lost my train of thought for a second. Try sending that again?";
-      addMessage('bot', msg);
+      addMessage('bot', "I lost my train of thought for a second. Try sending that again?");
       console.error(err);
     } finally {
       sendBtn.disabled = false;
